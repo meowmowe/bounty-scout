@@ -12,6 +12,8 @@ SOURCES = {
 }
 
 def send_telegram(msg):
+    # Telegram max 4096 karakter
+    msg = msg[:4000]
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -54,32 +56,39 @@ for platform, url in SOURCES.items():
             raw = json.load(f)
 
         if isinstance(raw, list):
-            old_programs = {name: set() for name in raw}
+            # Eski format: sadece isimler vardı, scope yoktu
+            # Scope karşılaştırması yapma, sadece yeni programlara bak
+            old_programs = {name: None for name in raw}
         else:
             old_programs = {k: set(v) for k, v in raw.items()}
 
+        # 1. Yeni programlar
         new_programs = set(current_programs.keys()) - set(old_programs.keys())
         for name in new_programs:
             msg = f"🆕 <b>Yeni Program — {platform}</b>\n\n<b>{name}</b>"
             send_telegram(msg)
             print(f"Yeni program: {name}")
 
-        for name, current_targets in current_programs.items():
-            if name not in old_programs:
-                continue
-            old_targets = old_programs[name]
+        # 2. Scope değişiklikleri (sadece eski format dict ise)
+        if not isinstance(raw, list):
+            for name, current_targets in current_programs.items():
+                if name not in old_programs:
+                    continue
+                old_targets = old_programs[name]
 
-            added = current_targets - old_targets
-            removed = old_targets - current_targets
+                added = current_targets - old_targets
+                removed = old_targets - current_targets
 
-            if added or removed:
-                msg = f"📝 <b>Scope Değişti — {platform}</b>\n<b>{name}</b>\n\n"
-                if added:
-                    msg += "✅ <b>Eklendi:</b>\n" + "\n".join(f"• {t}" for t in added if t) + "\n\n"
-                if removed:
-                    msg += "❌ <b>Kaldırıldı:</b>\n" + "\n".join(f"• {t}" for t in removed if t)
-                send_telegram(msg)
-                print(f"Scope değişti: {name}")
+                if added or removed:
+                    msg = f"📝 <b>Scope Değişti — {platform}</b>\n<b>{name}</b>\n\n"
+                    if added:
+                        items = "\n".join(f"• {t}" for t in list(added)[:20] if t)
+                        msg += f"✅ <b>Eklendi:</b>\n{items}\n\n"
+                    if removed:
+                        items = "\n".join(f"• {t}" for t in list(removed)[:20] if t)
+                        msg += f"❌ <b>Kaldırıldı:</b>\n{items}"
+                    send_telegram(msg)
+                    print(f"Scope değişti: {name}")
     else:
         print(f"İlk çalışma, liste kaydedildi")
 
