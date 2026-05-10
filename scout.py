@@ -52,6 +52,9 @@ for platform, url in SOURCES.items():
     if os.path.exists(filename):
         with open(filename) as f:
             raw = json.load(f)
+            if isinstance(raw, list):
+            old_programs = {name: set() for name in raw}
+        else:
             old_programs = {k: set(v) for k, v in raw.items()}
         
         # 1. Yeni programlar
