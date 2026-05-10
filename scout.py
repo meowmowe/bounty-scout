@@ -42,37 +42,36 @@ def get_programs(platform, data):
 
 for platform, url in SOURCES.items():
     print(f"\n--- {platform} kontrol ediliyor ---")
-    
+
     with urllib.request.urlopen(url) as r:
         current_data = json.loads(r.read())
-    
+
     current_programs = get_programs(platform, current_data)
     filename = f"{platform.lower()}_programs.json"
-    
+
     if os.path.exists(filename):
         with open(filename) as f:
             raw = json.load(f)
-            if isinstance(raw, list):
+
+        if isinstance(raw, list):
             old_programs = {name: set() for name in raw}
         else:
             old_programs = {k: set(v) for k, v in raw.items()}
-        
-        # 1. Yeni programlar
+
         new_programs = set(current_programs.keys()) - set(old_programs.keys())
         for name in new_programs:
             msg = f"🆕 <b>Yeni Program — {platform}</b>\n\n<b>{name}</b>"
             send_telegram(msg)
             print(f"Yeni program: {name}")
-        
-        # 2. Scope değişiklikleri
+
         for name, current_targets in current_programs.items():
             if name not in old_programs:
                 continue
             old_targets = old_programs[name]
-            
+
             added = current_targets - old_targets
             removed = old_targets - current_targets
-            
+
             if added or removed:
                 msg = f"📝 <b>Scope Değişti — {platform}</b>\n<b>{name}</b>\n\n"
                 if added:
@@ -83,7 +82,6 @@ for platform, url in SOURCES.items():
                 print(f"Scope değişti: {name}")
     else:
         print(f"İlk çalışma, liste kaydedildi")
-    
-    # Güncel listeyi kaydet
+
     with open(filename, "w") as f:
         json.dump({k: list(v) for k, v in current_programs.items()}, f)
