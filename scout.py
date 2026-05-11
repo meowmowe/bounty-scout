@@ -12,7 +12,6 @@ SOURCES = {
 }
 
 def send_telegram(msg):
-    # Telegram max 4096 karakter
     msg = msg[:4000]
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}).encode()
@@ -27,28 +26,53 @@ def get_programs(platform, data):
             targets = set()
             for t in p.get("targets", {}).get("in_scope", []):
                 targets.add(t.get("asset_identifier", ""))
+            extra = {"url": f"https://hackerone.com/{name}"}
         elif platform == "Bugcrowd":
             name = p.get("code", "")
             targets = set()
             for group in p.get("target_groups", []):
                 for t in group.get("targets", []):
                     targets.add(t.get("name", ""))
-          elif platform == "Intigriti":
+            extra = {"url": f"https://bugcrowd.com/{name}"}
+        elif platform == "Intigriti":
             name = p.get("handle", p.get("id", p.get("name", "")))
-            url_link = p.get("url", "")
-            min_bounty = p.get("min_bounty", "?")
-            max_bounty = p.get("max_bounty", "?")
             targets = set()
             for domain in p.get("domains", {}).get("content", []):
                 endpoint = domain.get("endpoint", "")
                 if endpoint:
                     targets.add(endpoint)
-            # Program detaylarını name'e göm
-            if url_link:
-                name = f"{name}|{url_link}|{min_bounty}-{max_bounty}"
+            extra = {
+                "url": p.get("url", f"https://app.intigriti.com/programs/{name}"),
+                "min_bounty": p.get("min_bounty", ""),
+                "max_bounty": p.get("max_bounty", ""),
+            }
+            # Debug: ilk programin tum keylerini yazdir
+            if not programs:
+                print(f"Intigriti ornek keys: {list(p.keys())}")
+        else:
+            name = ""
+            targets = set()
+            extra = {}
+
         if name:
-            programs[name] = targets
+            programs[name] = {"targets": targets, "extra": extra}
     return programs
+
+def format_new_program_msg(platform, name, info):
+    extra = info.get("extra", {})
+    targets = info.get("targets", set())
+    msg = f"🆕 <b>Yeni Program — {platform}</b>\n\n<b>{name}</b>\n"
+    url = extra.get("url", "")
+    if url:
+        msg += f"🔗 {url}\n"
+    min_b = extra.get("min_bounty", "")
+    max_b = extra.get("max_bounty", "")
+    if min_b or max_b:
+        msg += f"💰 Bounty: {min_b} - {max_b}\n"
+    if targets:
+        msg += f"\n🎯 <b>Scope ({len(targets)}):</b>\n"
+        msg += "\n".join(f"• {t}" for t in list(targets)[:15] if t)
+    return msg
 
 for platform, url in SOURCES.items():
     print(f"\n--- {platform} kontrol ediliyor ---")
@@ -64,55 +88,50 @@ for platform, url in SOURCES.items():
             raw = json.load(f)
 
         if isinstance(raw, list):
-            # Eski format: sadece isimler vardı, scope yoktu
-            # Scope karşılaştırması yapma, sadece yeni programlara bak
-            old_programs = {name: None for name in raw}
+            old_programs = {name: {"targets": set(), "extra": {}} for name in raw}
         else:
-            old_programs = {k: set(v) for k, v in raw.items()}
+            old_programs = {}
+            for k, v in raw.items():
+                if isinstance(v, dict):
+                    old_programs[k] = {"targets": set(v.get("targets", [])), "extra": v.get("extra", {})}
+                else:
+                    old_programs[k] = {"targets": set(v), "extra": {}}
 
-        # 1. Yeni programlar
-       new_programs = set(current_programs.keys()) - set(old_programs.keys())
+        # Yeni programlar
+        new_programs = set(current_programs.keys()) - set(old_programs.keys())
         for name in new_programs:
-            parts = name.split("|")
-            prog_name = parts[0]
-            prog_url = parts[1] if len(parts) > 1 else ""
-            prog_bounty = parts[2] if len(parts) > 2 else ""
-            
-            msg = f"🆕 <b>Yeni Program — {platform}</b>\n\n"
-            msg += f"<b>{prog_name}</b>\n"
-            if prog_url:
-                msg += f"🔗 {prog_url}\n"
-            if prog_bounty and prog_bounty != "?-?":
-                msg += f"💰 Bounty: {prog_bounty}\n"
-            targets = current_programs[name]
-            if targets:
-                msg += f"\n🎯 <b>Scope ({min(len(targets), 10)}/{len(targets)}):</b>\n"
-                msg += "\n".join(f"• {t}" for t in list(targets)[:10] if t)
+            msg = format_new_program_msg(platform, name, current_programs[name])
             send_telegram(msg)
             print(f"Yeni program: {name}")
 
-        # 2. Scope değişiklikleri (sadece eski format dict ise)
+        # Scope degisiklikleri
         if not isinstance(raw, list):
-            for name, current_targets in current_programs.items():
+            for name, info in current_programs.items():
                 if name not in old_programs:
                     continue
-                old_targets = old_programs[name]
-
+                current_targets = info["targets"]
+                old_targets = old_programs[name]["targets"]
                 added = current_targets - old_targets
                 removed = old_targets - current_targets
-
                 if added or removed:
-                    msg = f"📝 <b>Scope Değişti — {platform}</b>\n<b>{name}</b>\n\n"
+                    extra = info.get("extra", {})
+                    msg = f"📝 <b>Scope Değişti — {platform}</b>\n<b>{name}</b>\n"
+                    if extra.get("url"):
+                        msg += f"🔗 {extra['url']}\n"
                     if added:
-                        items = "\n".join(f"• {t}" for t in list(added)[:20] if t)
-                        msg += f"✅ <b>Eklendi:</b>\n{items}\n\n"
+                        items = "\n".join(f"• {t}" for t in list(added)[:15] if t)
+                        msg += f"\n✅ <b>Eklendi:</b>\n{items}\n"
                     if removed:
-                        items = "\n".join(f"• {t}" for t in list(removed)[:20] if t)
-                        msg += f"❌ <b>Kaldırıldı:</b>\n{items}"
+                        items = "\n".join(f"• {t}" for t in list(removed)[:15] if t)
+                        msg += f"\n❌ <b>Kaldırıldı:</b>\n{items}"
                     send_telegram(msg)
-                    print(f"Scope değişti: {name}")
+                    print(f"Scope degisti: {name}")
     else:
-        print(f"İlk çalışma, liste kaydedildi")
+        print(f"İlk calisma, liste kaydedildi")
 
+    # Kaydet
     with open(filename, "w") as f:
-        json.dump({k: list(v) for k, v in current_programs.items()}, f)
+        save_data = {}
+        for k, v in current_programs.items():
+            save_data[k] = {"targets": list(v["targets"]), "extra": v["extra"]}
+        json.dump(save_data, f)
