@@ -33,11 +33,19 @@ def get_programs(platform, data):
             for group in p.get("target_groups", []):
                 for t in group.get("targets", []):
                     targets.add(t.get("name", ""))
-        elif platform == "Intigriti":
-            name = p.get("handle", p.get("id", ""))
+          elif platform == "Intigriti":
+            name = p.get("handle", p.get("id", p.get("name", "")))
+            url_link = p.get("url", "")
+            min_bounty = p.get("min_bounty", "?")
+            max_bounty = p.get("max_bounty", "?")
             targets = set()
             for domain in p.get("domains", {}).get("content", []):
-                targets.add(domain.get("endpoint", ""))
+                endpoint = domain.get("endpoint", "")
+                if endpoint:
+                    targets.add(endpoint)
+            # Program detaylarını name'e göm
+            if url_link:
+                name = f"{name}|{url_link}|{min_bounty}-{max_bounty}"
         if name:
             programs[name] = targets
     return programs
@@ -63,9 +71,23 @@ for platform, url in SOURCES.items():
             old_programs = {k: set(v) for k, v in raw.items()}
 
         # 1. Yeni programlar
-        new_programs = set(current_programs.keys()) - set(old_programs.keys())
+       new_programs = set(current_programs.keys()) - set(old_programs.keys())
         for name in new_programs:
-            msg = f"🆕 <b>Yeni Program — {platform}</b>\n\n<b>{name}</b>"
+            parts = name.split("|")
+            prog_name = parts[0]
+            prog_url = parts[1] if len(parts) > 1 else ""
+            prog_bounty = parts[2] if len(parts) > 2 else ""
+            
+            msg = f"🆕 <b>Yeni Program — {platform}</b>\n\n"
+            msg += f"<b>{prog_name}</b>\n"
+            if prog_url:
+                msg += f"🔗 {prog_url}\n"
+            if prog_bounty and prog_bounty != "?-?":
+                msg += f"💰 Bounty: {prog_bounty}\n"
+            targets = current_programs[name]
+            if targets:
+                msg += f"\n🎯 <b>Scope ({min(len(targets), 10)}/{len(targets)}):</b>\n"
+                msg += "\n".join(f"• {t}" for t in list(targets)[:10] if t)
             send_telegram(msg)
             print(f"Yeni program: {name}")
 
